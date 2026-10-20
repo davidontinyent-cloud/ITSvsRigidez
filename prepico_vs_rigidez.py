@@ -75,8 +75,8 @@ def cargar_datos():
                         y_prepico = y[:idx_peak+1]
                         
                         # Cálculo de áreas e integrales mediante regla trapezoidal
-                        area = np.trapz(y_prepico, x_prepico)
-                        integral_y2 = np.trapz(0.5 * y_prepico**2, x_prepico)
+                        area = np.trapezoid(y_prepico, x_prepico)
+                        integral_y2 = np.trapezoid(0.5 * y_prepico**2, x_prepico)
                         
                         if area > 0:
                             y_c = integral_y2 / area
