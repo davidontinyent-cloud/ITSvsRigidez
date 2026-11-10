@@ -92,6 +92,11 @@ def cargar_datos():
             except Exception as e:
                 st.warning(f"Aviso: No se pudo procesar datos_brutos.xlsx para el cálculo del centroide: {e}")
                 
+        # --- FILTRO GLOBAL: BLOQUEAR AC22 SIN RAP ---
+        if 'Mezcla' in df.columns and 'RAP' in df.columns:
+            # Excluimos donde Mezcla sea AC22 y RAP sea "Sin_RAP" o 0
+            df = df[~((df['Mezcla'] == 'AC22') & (df['RAP'].astype(str).str.lower().isin(['sin_rap', '0'])))]
+
         return df
         
     except Exception as e:
@@ -220,7 +225,6 @@ with tab_reg:
                 st.pyplot(fig_t)
                 st.caption(f"R²: {mod_t.rsquared:.4f} | p-value: {mod_t.pvalues['Tension_Rotura']:.4f}")
 
-    # NUEVO: Gráficos adicionales de regresión para Energía y Centroide
     col_2E, col_2F = st.columns(2)
     with col_2E:
         st.markdown("**Energía Pre-Pico ($G_{f, prepico}$)**")
@@ -260,7 +264,6 @@ with tab_reg:
 
     st.markdown("---")
     st.subheader("1.3. Matrices de Correlación")
-    # NUEVO: Añadidos los parámetros al listado de variables macro
     macro_params = ['Rigidez_20', 'Carga_pico']
     if 'Tension_Rotura' in df_est.columns:
         macro_params.append('Tension_Rotura')
@@ -302,9 +305,22 @@ with tab_rigidez_tension:
         
         if not df_rt.empty:
             
+            # --- DIVISIÓN DE AC16 PARA GRÁFICAS 2.1 Y 2.2 ---
+            # Creamos una columna 'Mezcla_Plot' que separa las AC16 en dos categorías distintas
+            def renombrar_ac16(row):
+                if row['Mezcla'] == 'AC16':
+                    rap_val = str(row['RAP']).lower()
+                    if rap_val in ['sin_rap', '0']:
+                        return 'AC16 (Sin RAP)'
+                    else:
+                        return 'AC16 (Con RAP)'
+                return row['Mezcla']
+                
+            df_rt['Mezcla_Plot'] = df_rt.apply(renombrar_ac16, axis=1)
+            
             st.markdown("---")
             st.subheader("2.1. Relación Global: Tensión vs Rigidez (Todas las Probetas)")
-            st.markdown("Diagrama de dispersión global con **líneas de tendencia independientes por mezcla** y una **Línea de Ajuste Total** (en negro discontinuo) que evalúa el coeficiente de correlación de todas las probetas en conjunto.")
+            st.markdown("Diagrama de dispersión global con **líneas de tendencia independientes por mezcla** (AC16 dividida según RAP) y una **Línea de Ajuste Total** (en negro discontinuo) que evalúa el coeficiente de correlación de todas las probetas en conjunto.")
             
             df_global = df_rt.copy()
             
@@ -315,10 +331,10 @@ with tab_rigidez_tension:
             r2_tot = mod_tot.rsquared
 
             fig_global_rt = px.scatter(
-                df_global, x="Tension_Rotura", y="Rigidez_20", color="Mezcla",
+                df_global, x="Tension_Rotura", y="Rigidez_20", color="Mezcla_Plot",  # Usamos Mezcla_Plot aquí
                 trendline="ols",
                 hover_data=['Probeta', 'RAP', 'Envejecimiento'],
-                labels={"Tension_Rotura": "Tensión de Rotura (MPa)", "Rigidez_20": "Rigidez a 20ºC (MPa)"},
+                labels={"Tension_Rotura": "Tensión de Rotura (MPa)", "Rigidez_20": "Rigidez a 20ºC (MPa)", "Mezcla_Plot": "Tipo de Mezcla"},
                 color_discrete_sequence=px.colors.qualitative.Set1
             )
             
@@ -340,7 +356,7 @@ with tab_rigidez_tension:
             st.markdown("---")
             st.subheader("2.2. Análisis Aislado: Rigidez y Tensión de Rotura")
             st.markdown("""
-            Panel independiente para cada mezcla cuantificando el impacto del envejecimiento y del RAP. 
+            Panel independiente para cada mezcla (AC16 dividida según RAP) cuantificando el impacto del envejecimiento y del RAP. 
             Permite ver si el RAP actúa puramente como rigidizador o aporta fuerza, y si la varianza (ancho de caja) se vuelve inestable en E2.
             """)
             
@@ -348,20 +364,20 @@ with tab_rigidez_tension:
             y_label_aislada = "Tensión de Rotura (MPa)" if var_aislada == "Tension_Rotura" else "Rigidez a 20ºC (MPa)"
             
             fig_box_rt = px.box(
-                df_rt, x="Envejecimiento", y=var_aislada, color="RAP", facet_col="Mezcla",
+                df_rt, x="Envejecimiento", y=var_aislada, color="RAP", facet_col="Mezcla_Plot", # Usamos Mezcla_Plot aquí
                 category_orders={"Envejecimiento": ["Control", "E1", "E2"]},
-                labels={var_aislada: y_label_aislada},
+                labels={var_aislada: y_label_aislada, "Mezcla_Plot": "Tipo de Mezcla"},
                 color_discrete_sequence=px.colors.qualitative.Set1,
                 points="all"
             )
             
-            df_medians_rt = df_rt.groupby(['Mezcla', 'Envejecimiento', 'RAP'])[var_aislada].median().reset_index()
+            df_medians_rt = df_rt.groupby(['Mezcla_Plot', 'Envejecimiento', 'RAP'])[var_aislada].median().reset_index()
             order_env = {'Control': 0, 'E1': 1, 'E2': 2}
             df_medians_rt['orden'] = df_medians_rt['Envejecimiento'].map(order_env)
-            df_medians_rt = df_medians_rt.sort_values(['Mezcla', 'RAP', 'orden'])
+            df_medians_rt = df_medians_rt.sort_values(['Mezcla_Plot', 'RAP', 'orden'])
 
-            for i, mezcla in enumerate(df_rt['Mezcla'].unique()):
-                df_mezcla = df_medians_rt[df_medians_rt['Mezcla'] == mezcla]
+            for i, mezcla in enumerate(df_rt['Mezcla_Plot'].unique()):
+                df_mezcla = df_medians_rt[df_medians_rt['Mezcla_Plot'] == mezcla]
                 for rap in df_mezcla['RAP'].unique():
                     df_rap = df_mezcla[df_mezcla['RAP'] == rap]
                     fig_box_rt.add_trace(go.Scatter(
@@ -388,6 +404,7 @@ with tab_rigidez_tension:
             *   **Vector plano hacia la derecha:** La mezcla se rigidiza sin ganar resistencia (fragilización inminente).
             """)
             
+            # En 2.3 volvemos a usar la columna 'Mezcla' original, tal como pediste
             mezclas_rt = df_rt['Mezcla'].unique()
             cols_rt = st.columns(len(mezclas_rt))
             
